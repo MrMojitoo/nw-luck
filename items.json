@@ -1,0 +1,16 @@
+[
+  {
+    "ItemID": "FishingBassSmallT1",
+    "Name": "Small Bass",
+    "Type": "Fish",
+    "Tier": 1,
+    "Icon": "https://.../FishingBassSmallT1.png"
+  },
+  {
+    "ItemID": "IronSwordT2",
+    "Name": "Iron Sword",
+    "Type": "Weapon",
+    "Tier": 2,
+    "Icon": "https://.../IronSwordT2.png"
+  }
+]
