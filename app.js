@@ -32,6 +32,22 @@ const itemsInfo = document.getElementById("itemsInfo");
 const detailsDiv = document.getElementById("itemDetails");
 
 /* ------------- Utilities ------------- */
+// --- normaliser une clé: minuscules + retirer tout sauf [a-z0-9]
+function normKey(k) {
+  return String(k).toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+// Retourne la 1ère valeur trouvée en testant plusieurs noms de champs, avec normalisation
+function getField(rec, candidates) {
+  const map = {};
+  for (const [k, v] of Object.entries(rec)) map[normKey(k)] = v;
+  for (const name of candidates) {
+    const nk = normKey(name);
+    if (nk in map) return map[nk];
+  }
+  return undefined;
+}
+
 function shardKeyFromQuery(q) {
   if (!q || q.length === 0) return null;
   const c = q.trim()[0].toLowerCase();
@@ -100,10 +116,9 @@ function renderItems(items) {
 
 // Renvoie [{itemId, qty, probs}] à partir d'un record de loot-table/bucket
 function extractTriplets(rec) {
-  const keys = Object.keys(rec);
   const out = [];
 
-  // 1) Cas compact (tableau d'objets déjà normalisé)
+  // Cas Items déjà structurés en tableau d'objets
   if (Array.isArray(rec.Items)) {
     rec.Items.forEach(it => {
       out.push({
@@ -115,26 +130,37 @@ function extractTriplets(rec) {
     return out;
   }
 
-  // 2) Cas colonnes à plat: Item1 / Qty1 / Probs1, Item2 / ...
-  // on cherche toutes les colonnes "Item" et on tente de récupérer Qty/Probs de même index
-  const itemCols = keys.filter(k => /^item/i.test(k) && rec[k]);
-  for (const k of itemCols) {
-    const idx = (k.match(/\d+$/) || [null])[0]; // "1" dans "Item1"
-    const itemId = rec[k];
-    if (!itemId) continue;
+  const keys = Object.keys(rec);
 
-    // matching flex
-    const qtyKey = [`Quantity${idx}`, `Qty${idx}`, `quantity${idx}`, `qty${idx}`].find(c => c in rec);
-    const prbKey = [`Probs${idx}`, `Prob${idx}`, `probs${idx}`, `prob${idx}`].find(c => c in rec);
-
-    out.push({
-      itemId,
-      qty: qtyKey ? rec[qtyKey] : null,
-      probs: prbKey ? rec[prbKey] : null
-    });
+  // Cas colonnes Item1 / Qty1 / Probs1
+  const itemCols = keys.filter(k => /^Item\d+$/i.test(k) && rec[k]);
+  if (itemCols.length) {
+    for (const k of itemCols) {
+      const idx = (k.match(/\d+$/) || [null])[0];
+      const itemId = rec[k];
+      const qtyKey = [`Quantity${idx}`, `Qty${idx}`, `quantity${idx}`, `qty${idx}`].find(c => c in rec);
+      const prbKey = [`Probs${idx}`, `Prob${idx}`, `probs${idx}`, `prob${idx}`].find(c => c in rec);
+      out.push({
+        itemId,
+        qty: qtyKey ? rec[qtyKey] : null,
+        probs: prbKey ? rec[prbKey] : null
+      });
+    }
+    return out;
   }
+
+  // Fallback: une partie des extractions S9 place l'ID d'item dans une autre colonne
+  // -> on scanne toutes les paires clé/valeur et si la valeur ressemble à un ItemID on la prend
+  for (const [k, v] of Object.entries(rec)) {
+    if (v == null) continue;
+    if (typeof v === "string" && /[A-Za-z]/.test(v) && /item|artifact|weapon|armor|fish/i.test(v)) {
+      out.push({ itemId: v, qty: null, probs: null });
+    }
+  }
+
   return out;
 }
+
 
 // util: formater une probabilité sous forme %
 function fmtProb(p) {
@@ -145,6 +171,19 @@ function fmtProb(p) {
   const pct = num <= 1 ? num * 100 : num;
   return `${pct.toFixed(2)}%`;
 }
+
+function recordMeta(rec) {
+  // On accepte plein de variantes d'entêtes
+  const logic = getField(rec, ["AND/OR", "ANDOR", "AndOr", "Logic", "AND", "OR"]);
+  const roll  = getField(rec, ["RollBonusSetting", "Roll Bonus Setting", "RollMode", "Roll", "AddToRoll", "ClampMax"]);
+  const maxr  = getField(rec, ["MaxRoll", "Max Roll", "RollMax", "Max"]);
+  return {
+    logic: logic ?? "—",
+    roll:  roll ?? "—",
+    maxr:  maxr  ?? "—",
+  };
+}
+
 
 // util: collecter conditions/tags si présentes
 function extractConditions(rec) {
@@ -171,45 +210,44 @@ async function showItemDetails(item) {
 
   await ensureLootData();
 
-  // Trouver tables/buckets qui contiennent cet item
-  const tablesWithItem = (lootTables || []).filter(rec =>
-    extractTriplets(rec).some(t => (t.itemId || "").toLowerCase() === item.id.toLowerCase())
-  );
-  const bucketsWithItem = (lootBuckets || []).filter(rec =>
-    extractTriplets(rec).some(t => (t.itemId || "").toLowerCase() === item.id.toLowerCase())
-  );
+  // util: vrai si l'item apparaît dans cet enregistrement (triplets OU partout dans les valeurs)
+  function recordContainsItem(rec, targetId) {
+    const id = (targetId || "").toLowerCase();
+    // via triplets
+    const tris = extractTriplets(rec);
+    if (tris.some(t => (t.itemId || "").toLowerCase() === id)) return true;
+
+    // via scan de toutes les valeurs (ex: colonnes non standard)
+    for (const v of Object.values(rec)) {
+      if (v && typeof v === "string" && v.toLowerCase() === id) return true;
+    }
+    return false;
+  }
+
+  // …
+  const tablesWithItem = (lootTables || []).filter(rec => recordContainsItem(rec, item.id));
+  const bucketsWithItem = (lootBuckets || []).filter(rec => recordContainsItem(rec, item.id));
+
 
   // Rendu sections
   function renderRecords(recs, kind) {
     if (!recs.length) return `<p class="opacity-70">No ${kind} found.</p>`;
     return recs.map(rec => {
       // métadonnées les plus fréquentes
-      const id = rec.LootTableID || rec.LTID || rec.LootBucketID || rec.LBID || rec.ID || rec.Id || "—";
-      const andor = rec["AND/OR"] || rec.ANDOR || rec.AND || rec.OR || rec.Logic || "—";
-      const rollMode = rec.RollBonusSetting || rec.RollMode || rec.Roll || "—";
-      const maxRoll = rec.MaxRoll ?? rec.Max ?? "—";
+      const id = getField(rec, ["LootTableID","LTID","LootBucketID","LBID","ID","Id"]) || "—";
+      const meta = recordMeta(rec);
       const conds = extractConditions(rec);
 
-      // triplets dont seulement CET item
       const tris = extractTriplets(rec)
-      .filter(t => (t.itemId || "").toLowerCase() === item.id.toLowerCase())
-      .sort((a,b) => (Number(a.probs||0) - Number(b.probs||0)));
-
-
-      const itemsHtml = tris.map(t => `
-        <tr>
-          <td class="td">${t.itemId}</td>
-          <td class="td">${t.qty ?? "—"}</td>
-          <td class="td">${fmtProb(t.probs)}</td>
-        </tr>
-      `).join("") || `<tr><td class="td" colspan="3">—</td></tr>`;
+        .filter(t => (t.itemId || "").toLowerCase() === item.id.toLowerCase())
+        .sort((a,b) => (Number(a.probs||0) - Number(b.probs||0)));
 
       return `
         <div class="mb-4 border border-gray-700 rounded">
           <div class="p-3 bg-gray-800">
             <div class="font-semibold">${kind}: <span class="text-yellow-300">${id}</span></div>
             <div class="text-sm opacity-80">
-              Logic: <b>${andor}</b> · RollBonus: <b>${rollMode}</b> · MaxRoll: <b>${maxRoll}</b>
+              Logic: <b>${meta.logic}</b> · RollBonus: <b>${meta.roll}</b> · MaxRoll: <b>${meta.maxr}</b>
               ${conds.length ? `<br/>Conditions/Tags: <span class="opacity-90">${conds.join(" · ")}</span>` : ""}
             </div>
           </div>
@@ -223,6 +261,7 @@ async function showItemDetails(item) {
           </div>
         </div>
       `;
+
     }).join("");
   }
 
