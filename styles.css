@@ -1,0 +1,9 @@
+.tab { display: block; }
+.tab.hidden { display: none; }
+.tab-btn { padding: 0.25rem 0.75rem; border-radius: 0.5rem; background:#374151; }
+.tab-btn:hover { background:#4b5563; }
+.tab-btn.active { background:#6b7280; }
+.th { padding: .5rem; border-bottom: 1px solid #4b5563; text-align: left; }
+.td { padding: .5rem; border-bottom: 1px solid #374151; }
+.row { cursor: pointer; }
+.row:hover { background: #111827; }

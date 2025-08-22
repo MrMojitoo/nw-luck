@@ -1,45 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8" />
   <title>New World Luck Explorer</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
   <header class="p-4 bg-gray-800 shadow-md flex justify-between items-center">
     <h1 class="text-2xl font-bold">⚔️ New World Luck Explorer</h1>
-    <nav>
-      <a href="#" class="px-3 hover:text-yellow-400">Items</a>
-      <a href="#" class="px-3 hover:text-yellow-400">Loot Explorer</a>
-      <a href="#" class="px-3 hover:text-yellow-400">Luck Simulator</a>
+    <nav class="flex gap-4">
+      <button class="tab-btn active" data-tab="items">Items</button>
+      <button class="tab-btn" data-tab="loot">Loot Explorer</button>
+      <button class="tab-btn" data-tab="sim">Luck Simulator</button>
     </nav>
   </header>
 
-  <main class="p-6">
-    <!-- Search -->
-    <div class="mb-4">
-      <input id="searchBox" type="text" placeholder="🔍 Rechercher un item..."
-        class="w-full p-2 rounded text-black">
-    </div>
+  <main class="p-6 space-y-6">
+    <!-- Items tab -->
+    <section id="tab-items" class="tab">
+      <div class="mb-4">
+        <input id="searchBox" type="text" placeholder="🔍 Search item by name or ID…"
+               class="w-full p-2 rounded text-black" />
+      </div>
 
-    <!-- Table -->
-    <div class="overflow-x-auto">
-      <table class="table-auto w-full border-collapse border border-gray-700">
-        <thead>
+      <div class="text-sm opacity-80 mb-2" id="itemsInfo"></div>
+
+      <div class="overflow-x-auto border border-gray-700 rounded">
+        <table class="table-auto w-full border-collapse">
+          <thead>
           <tr class="bg-gray-700">
-            <th class="p-2 border border-gray-600">Icon</th>
-            <th class="p-2 border border-gray-600">ItemID</th>
-            <th class="p-2 border border-gray-600">Name</th>
-            <th class="p-2 border border-gray-600">Type</th>
-            <th class="p-2 border border-gray-600">Tier</th>
+            <th class="th">Icon</th>
+            <th class="th">ItemID</th>
+            <th class="th">Name</th>
+            <th class="th">Type</th>
+            <th class="th">Tier</th>
           </tr>
-        </thead>
-        <tbody id="itemsTable"></tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody id="itemsTable"></tbody>
+        </table>
+      </div>
+
+      <div id="itemDetails" class="mt-6 hidden border border-gray-700 p-4 rounded bg-gray-800"></div>
+    </section>
+
+    <!-- Loot Explorer -->
+    <section id="tab-loot" class="tab hidden">
+      <h2 class="text-xl font-semibold mb-2">Loot Explorer</h2>
+      <p class="opacity-80">Click an item in the Items tab to see its loot tables & buckets here (coming next).</p>
+    </section>
+
+    <!-- Luck Simulator -->
+    <section id="tab-sim" class="tab hidden">
+      <h2 class="text-xl font-semibold mb-2">Luck Simulator</h2>
+      <p class="opacity-80">Configure gear/trophies/food to simulate drop chances (coming next).</p>
+    </section>
   </main>
 
   <script src="app.js"></script>
-  <div id="itemDetails" class="p-4 border border-gray-600 mt-4 bg-gray-900 text-white"></div>
 </body>
 </html>

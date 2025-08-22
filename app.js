@@ -1,82 +1,153 @@
-// Charger les items depuis items.json
-async function loadItems() {
-  const res = await fetch("items.json");
-  const items = await res.json();
+/* ---------------- Tabs ---------------- */
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const tab = btn.dataset.tab;
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelectorAll(".tab").forEach(s => s.classList.add("hidden"));
+    document.getElementById(`tab-${tab}`).classList.remove("hidden");
+  });
+});
 
-  const table = document.getElementById("itemsTable");
-  const searchBox = document.getElementById("searchBox");
+/* ---------------- Data paths ---------------- */
+const DATA = {
+  itemsManifest: "data/items/manifest.json",
+  itemsDir: "data/items/",
+  lootTables: "data/loot_tables.json",
+  lootBuckets: "data/loot_buckets.json",
+  lootLimits: "data/loot_limits.json",
+};
 
-  function render(filter = "") {
-    table.innerHTML = "";
-    items
-      .filter(it =>
-        it.Name.toLowerCase().includes(filter.toLowerCase()) ||
-        it.ItemID.toLowerCase().includes(filter.toLowerCase())
-      )
-      .slice(0, 100) // limiter à 100 pour perf
-      .forEach(it => {
-        const row = document.createElement("tr");
-        row.className = "hover:bg-gray-800 cursor-pointer";
+let manifest = null;         // items manifest (list of shard filenames)
+let loadedShards = {};       // cache: shardKey -> array of items
+let allItemsIndex = null;    // cache if we load all shards
 
-        row.innerHTML = `
-            <td class="p-2 border border-gray-600 text-center">
-                ${it.Icon ? `<img src="${it.Icon}" class="h-8 mx-auto"/>` : "—"}
-            </td>
-            <td class="p-2 border border-gray-600">${it.ItemID}</td>
-            <td class="p-2 border border-gray-600 font-semibold">${it.Name}</td>
-            <td class="p-2 border border-gray-600">${it.Type}</td>
-            <td class="p-2 border border-gray-600">${it.Tier}</td>
-            `;
+const itemsTable = document.getElementById("itemsTable");
+const searchBox = document.getElementById("searchBox");
+const itemsInfo = document.getElementById("itemsInfo");
+const detailsDiv = document.getElementById("itemDetails");
 
-            row.addEventListener("click", () => showItemDetails(it));
-
-        table.appendChild(row);
-      });
-  }
-
-  // initial
-  render();
-
-  // recherche dynamique
-  searchBox.addEventListener("input", e => render(e.target.value));
+/* ------------- Utilities ------------- */
+function shardKeyFromQuery(q) {
+  if (!q || q.length === 0) return null;
+  const c = q.trim()[0].toLowerCase();
+  if (c >= 'a' && c <= 'z') return c;
+  if (c >= '0' && c <= '9') return c;
+  return 'misc';
 }
 
-loadItems();
+async function fetchJSON(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`Failed to load ${path}`);
+  return res.json();
+}
+
+async function ensureManifest() {
+  if (!manifest) manifest = await fetchJSON(DATA.itemsManifest);
+  return manifest;
+}
+
+async function loadShard(shardKey) {
+  if (loadedShards[shardKey]) return loadedShards[shardKey];
+  const file = (manifest.files || {})[shardKey];
+  if (!file) return [];
+  const data = await fetchJSON(DATA.itemsDir + file);
+  loadedShards[shardKey] = data;
+  return data;
+}
+
+async function loadAllShardsProgressive() {
+  await ensureManifest();
+  const keys = Object.keys(manifest.files || {});
+  let all = [];
+  for (const k of keys) {
+    const arr = await loadShard(k);
+    all = all.concat(arr);
+  }
+  allItemsIndex = all;
+  return all;
+}
+
+/* ------------- Rendering ------------- */
+function renderItems(items) {
+  itemsTable.innerHTML = "";
+  items.slice(0, 200).forEach(it => {
+    const tr = document.createElement("tr");
+    tr.className = "row";
+    tr.innerHTML = `
+      <td class="td text-center">${it.ic ? `<img src="${it.ic}" class="h-8 mx-auto" />` : "—"}</td>
+      <td class="td">${it.id || ""}</td>
+      <td class="td font-semibold">${it.n || ""}</td>
+      <td class="td">${it.t || ""}</td>
+      <td class="td">${it.tr ?? ""}</td>
+    `;
+    tr.addEventListener("click", () => showItemDetails(it));
+    itemsTable.appendChild(tr);
+  });
+  itemsInfo.textContent = `${items.length} item(s) (showing up to 200)`;
+}
 
 async function showItemDetails(item) {
-  // Charger loot-tables et loot-buckets si pas déjà faits
-  if (!window.lootTables) {
-    const ltRes = await fetch("loot-tables.json");
-    window.lootTables = await ltRes.json();
+  detailsDiv.classList.remove("hidden");
+  detailsDiv.innerHTML = `
+    <h2 class="text-xl font-bold mb-2">${item.n || item.id}</h2>
+    <p class="opacity-80 mb-2"><b>ID:</b> ${item.id} | <b>Type:</b> ${item.t || "—"} | <b>Tier:</b> ${item.tr ?? "—"}</p>
+    <p class="opacity-60">Loot tables & buckets will appear here (next step).</p>
+  `;
+  // Prochaine étape: fetch(DATA.lootTables / lootBuckets) et croiser
+}
 
-    const lbRes = await fetch("loot-buckets.json");
-    window.lootBuckets = await lbRes.json();
+/* ------------- Search logic ------------- */
+async function handleSearch() {
+  const q = searchBox.value.trim();
+  if (!q) {
+    const all = allItemsIndex || await loadAllShardsProgressive();
+    renderItems(all);
+    return;
+  }
+  await ensureManifest();
+
+  const key = shardKeyFromQuery(q);
+  let pool = [];
+  if (key && manifest.files[key]) {
+    pool = await loadShard(key);
+  } else {
+    const fallbackKeys = ['a','b','c','d','e','f','g','h','i','j'];
+    for (const k of fallbackKeys) {
+      if (manifest.files[k]) {
+        const arr = await loadShard(k);
+        pool = pool.concat(arr);
+      }
+    }
   }
 
-  // Trouver loot tables / buckets où l’item apparaît
-  const relatedTables = window.lootTables.filter(
-    lt => lt.Items && lt.Items.includes(item.ItemID)
+  const lower = q.toLowerCase();
+  const filtered = pool.filter(it =>
+    (it.n && it.n.toLowerCase().includes(lower)) ||
+    (it.id && it.id.toLowerCase().includes(lower))
   );
-
-  const relatedBuckets = window.lootBuckets.filter(
-    lb => lb.Items && lb.Items.includes(item.ItemID)
-  );
-
-  // Construire contenu
-  const detailsDiv = document.getElementById("itemDetails");
-  detailsDiv.innerHTML = `
-    <h2 class="text-xl font-bold mb-2">${item.Name}</h2>
-    <p><b>ID:</b> ${item.ItemID}</p>
-    <p><b>Type:</b> ${item.Type} | <b>Tier:</b> ${item.Tier}</p>
-
-    <h3 class="mt-4 font-semibold">Loot Tables</h3>
-    <ul class="list-disc ml-6">
-      ${relatedTables.map(t => `<li>${t.LootTableID}</li>`).join("") || "<li>—</li>"}
-    </ul>
-
-    <h3 class="mt-4 font-semibold">Loot Buckets</h3>
-    <ul class="list-disc ml-6">
-      ${relatedBuckets.map(b => `<li>${b.LootBucketID}</li>`).join("") || "<li>—</li>"}
-    </ul>
-  `;
+  renderItems(filtered);
 }
+
+searchBox.addEventListener("input", () => {
+  clearTimeout(window._searchTimer);
+  window._searchTimer = setTimeout(handleSearch, 150);
+});
+
+/* ------------- Boot ------------- */
+(async function init() {
+  // tabs already wired above
+  await ensureManifest();
+  const warmKeys = ['a','b','c'];
+  let warm = [];
+  for (const k of warmKeys) {
+    if (manifest.files[k]) {
+      const arr = await loadShard(k);
+      warm = warm.concat(arr);
+    }
+  }
+  if (warm.length === 0) {
+    warm = await loadAllShardsProgressive();
+  }
+  renderItems(warm);
+})();
